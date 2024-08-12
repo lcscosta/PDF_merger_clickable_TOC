@@ -1,0 +1,7 @@
+#setup script to install dependencies for google colab
+
+from google.colab import drive
+drive.mount('/content/drive')
+!pip install PyPDF2 reportlab
+!pip install --upgrade PyPDF2 reportlab Pillow
+!pip install --upgrade PyPDF2 reportlab Pillow openpyxl
