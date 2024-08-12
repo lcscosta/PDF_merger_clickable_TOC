@@ -1,0 +1,433 @@
+"""
+PDF_TOC_Generator_with_Header_Footer_v1.py
+Version: 1.0 - Date: 08-Aug-2024
+
+Authors: George C. Cardoso; ChatGPT
+Email: gcc@usp.br
+GitHub: https://github.com/Photobiomedical-Instrumentation-Group
+
+Description:
+This script processes PDF files by adding headers, footers, and links, and generates a Table of Contents (TOC) for a collection of submissions.
+It has been tested and verified to work well; see results from 10/Aug at 3:51 PM.
+Note: The script still needs to include "link" text next to poster/oral.
+
+Dependencies:
+- PyPDF2
+- reportlab
+- PIL (Pillow)
+- pandas
+- Google Colab (files module)
+
+In google colab, first run:
+from google.colab import drive
+drive.mount('/content/drive')
+!pip install PyPDF2 reportlab
+!pip install --upgrade PyPDF2 reportlab Pillow
+!pip install --upgrade PyPDF2 reportlab Pillow openpyxl
+
+Usage:
+Ensure all required dependencies are installed.
+
+Needs:
+- Excel spreadsheet filled out with filenames (with or without .pdf), titles, authors, and type of presentation.
+- PDF files with filenames identical to the ones in the spreadsheet (attention: case-sensitive!).
+- All filenames are case-sensitive (including the extensions .jpg, .pdf, etc.)!
+- Filenames must have no spaces. Use "File_One.pdf" instead of "File One.pdf" (this requirement has been updated below).
+"""
+
+from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2.generic import NameObject, DictionaryObject, ArrayObject, NumberObject, IndirectObject
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4, inch
+from reportlab.lib.units import inch
+from PIL import Image as PILImage
+from io import BytesIO
+import os
+import re
+import random
+import pandas as pd
+from google.colab import files
+
+# Global variables for formatting
+PAGE_SIZE = A4
+LEFT_MARGIN = inch
+RIGHT_MARGIN = 0.5 * inch
+HEADER_IMAGE_RESIZE_FACTOR = 0.5
+HEADER_IMAGE_HEIGHT = 1.0 * inch  # Control the height of the header image
+TOC_TITLE_FONT_SIZE = 14
+TOC_FONT_SIZE = 10
+FOOTER_FONT_SIZE = 10  # Font size for the footer text
+HEADER_VERT_DISPLACE = 0.5 * inch  # Lower values mean higher header
+TOC_LOWER_MARGIN = 1 * inch  # Lower margin for the TOC
+
+# Global font settings
+FONT_TYPE = "Helvetica"
+FOOTER_TEXT = "CBEB Ribeirão Preto 2024. Click here to go to the Table of Contents"
+
+def preprocess_authors(authors):
+    """Cleans and formats the author names by capitalizing each word and removing unnecessary numbers and commas."""
+    authors = re.sub(r'\d+', '', authors)
+    authors = ' '.join(word.capitalize() for word in authors.split())
+
+    author_list = authors.split(',')
+    author_list = [author.strip() for author in author_list if author.strip()]
+    authors = ', '.join(author_list)
+
+    return authors
+
+def normalize_filename(filename):
+    """Checks if the filename has a .pdf extension; if not, adds .pdf."""
+    if not filename.lower().endswith('.pdf'):
+        filename += '.pdf'
+    return filename
+
+def add_header_footer(page, header_image_path, footer_text, page_num, toc_page_num=None):
+    """Adds a header image and footer text with a page number to the given PDF page.
+    If toc_page_num is provided, both the header image and the footer text will be clickable and link back to the TOC.
+    """
+    try:
+        img = PILImage.open(header_image_path)
+        img.verify()
+    except Exception as e:
+        print(f"Error opening header image: {e}")
+        return
+
+    packet = BytesIO()
+    can = canvas.Canvas(packet, pagesize=PAGE_SIZE)
+    width, height = PAGE_SIZE
+
+    try:
+        img_width, img_height = img.size
+        new_width = img_width * HEADER_IMAGE_RESIZE_FACTOR
+        new_height = HEADER_IMAGE_HEIGHT
+        can.drawImage(header_image_path, LEFT_MARGIN, height - HEADER_VERT_DISPLACE - new_height,
+                      width=new_width, height=new_height)
+    except Exception as e:
+        print(f"Error drawing header image: {e}")
+        return
+
+    # Footer text with the page number right-aligned
+    can.setFont(FONT_TYPE, FOOTER_FONT_SIZE)
+    can.drawString(LEFT_MARGIN, 30, footer_text)
+
+    # Calculate the width of the page number text
+    page_number_text = f"Page {page_num}"
+    page_number_text_width = can.stringWidth(page_number_text, FONT_TYPE, FOOTER_FONT_SIZE)
+
+    # Draw the page number right-aligned at the right margin
+    can.drawString(width - RIGHT_MARGIN - page_number_text_width, 30, page_number_text)
+
+    can.save()
+
+    packet.seek(0)
+    overlay_pdf = PdfReader(packet)
+    overlay_page = overlay_pdf.pages[0]
+    page.merge_page(overlay_page)
+
+    if toc_page_num is not None:
+        add_link_to_header_footer(page, width, height, toc_page_num)
+
+def add_link_to_header_footer(page, page_width, page_height, toc_page_num):
+    """Adds link annotations to both the header image and the footer text that link back to the TOC page."""
+    # Add link to the header
+    header_annotation = DictionaryObject()
+    header_annotation.update({
+        NameObject("/Type"): NameObject("/Annot"),
+        NameObject("/Subtype"): NameObject("/Link"),
+        NameObject("/Rect"): ArrayObject([
+            NumberObject(LEFT_MARGIN),
+            NumberObject(page_height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT),
+            NumberObject(LEFT_MARGIN + HEADER_IMAGE_RESIZE_FACTOR * page_width),
+            NumberObject(page_height - HEADER_VERT_DISPLACE)
+        ]),
+        NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+        NameObject("/A"): DictionaryObject({
+            NameObject("/S"): NameObject("/GoTo"),
+            NameObject("/D"): ArrayObject([NumberObject(toc_page_num),
+                                           NameObject("/XYZ"),
+                                           NumberObject(0),
+                                           NumberObject(842),
+                                           NumberObject(0)])
+        })
+    })
+
+    # Add link to the footer
+    footer_annotation = DictionaryObject()
+    footer_annotation.update({
+        NameObject("/Type"): NameObject("/Annot"),
+        NameObject("/Subtype"): NameObject("/Link"),
+        NameObject("/Rect"): ArrayObject([
+            NumberObject(LEFT_MARGIN),
+            NumberObject(20),
+            NumberObject(page_width - RIGHT_MARGIN),
+            NumberObject(40)
+        ]),
+        NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+        NameObject("/A"): DictionaryObject({
+            NameObject("/S"): NameObject("/GoTo"),
+            NameObject("/D"): ArrayObject([NumberObject(toc_page_num),
+                                           NameObject("/XYZ"),
+                                           NumberObject(0),
+                                           NumberObject(842),
+                                           NumberObject(0)])
+        })
+    })
+
+    if "/Annots" in page:
+        page[NameObject("/Annots")].extend([header_annotation, footer_annotation])
+    else:
+        page[NameObject("/Annots")] = ArrayObject([header_annotation, footer_annotation])
+
+def create_pdf_with_header_footer(input_pdf_path, header_image_path, footer_text, start_page_num, toc_page_num):
+    """Applies header and footer to each page of the PDF and returns a PdfWriter object."""
+    reader = PdfReader(input_pdf_path)
+    writer = PdfWriter()
+
+    for page_num in range(len(reader.pages)):
+        page = reader.pages[page_num]
+        add_header_footer(page, header_image_path, footer_text, start_page_num + page_num, toc_page_num)
+        writer.add_page(page)
+
+    return writer
+
+def generate_toc_pdf(toc_entries, header_image_path):
+    """Generates a Table of Contents (TOC) PDF with links to the corresponding pages in the main document."""
+    buffer = BytesIO()
+    can = canvas.Canvas(buffer, pagesize=PAGE_SIZE)
+    links = []
+
+    width, height = PAGE_SIZE
+    margin = LEFT_MARGIN
+    y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40  # Adjusted for header image and title
+    line_height = 15
+    entry_spacing = 10
+
+    # Add header image
+    try:
+        img = PILImage.open(header_image_path)
+        img.verify()
+        img_width, img_height = img.size
+        new_width = width - 2 * margin  # Adjust to fit within margins
+        new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+        can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
+        y_position -= new_height + 20
+    except Exception as e:
+        print(f"Error drawing header image on TOC page: {e}")
+
+    # Add "Table of Contents" title
+    can.setFont(FONT_TYPE, TOC_TITLE_FONT_SIZE)
+    can.drawString(margin, y_position, "Table of Contents")
+    y_position -= 40
+
+    can.setFont(FONT_TYPE, TOC_FONT_SIZE)
+
+    for entry in toc_entries:
+        title, author, presentation_type, page_num = entry
+        link_text = f"({presentation_type}) {title}, by {author}"
+
+        # Handle text wrapping
+        words = link_text.split()
+        current_line = ""
+        lines = []
+
+        for word in words:
+            if can.stringWidth(current_line + " " + word, FONT_TYPE, TOC_FONT_SIZE) < (width - 2 * margin - 100):
+                current_line += " " + word
+            else:
+                lines.append(current_line.strip())
+                current_line = word
+
+        lines.append(current_line.strip())
+
+        # Draw each line of text and add links to the first line
+        for i, line in enumerate(lines):
+            can.drawString(margin, y_position, line)
+            if i == 0:
+                text_width = can.stringWidth(line, FONT_TYPE, TOC_FONT_SIZE)
+                links.append((margin, y_position, margin + text_width, y_position + line_height, page_num))
+            y_position -= line_height
+
+        # Draw the page number on the same line as the last line of the title
+        page_number_text = f"Page {page_num}"
+        can.drawRightString(width - margin, y_position + line_height, page_number_text)
+
+        y_position -= entry_spacing
+
+        if y_position < TOC_LOWER_MARGIN:
+            can.showPage()
+            y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40  # Reset for the new page
+            can.setFont(FONT_TYPE, TOC_FONT_SIZE)  # Ensure consistent font settings on the new page
+
+    can.save()
+    buffer.seek(0)
+
+    toc_reader = PdfReader(buffer)
+
+    # Add links to the TOC with the corrected page destination
+    for i, (x1, y1, x2, y2, page_num) in enumerate(links):
+        annotation = DictionaryObject()
+        annotation.update({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Link"),
+            NameObject("/Rect"): ArrayObject([NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+            NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+            NameObject("/A"): DictionaryObject({
+                NameObject("/S"): NameObject("/GoTo"),
+                NameObject("/D"): ArrayObject([NumberObject(page_num + len(toc_reader.pages) - 1),
+                                               NameObject("/XYZ"),
+                                               NumberObject(0),
+                                               NumberObject(842),
+                                               NumberObject(0)])
+            })
+        })
+        toc_page = toc_reader.pages[0]
+        if "/Annots" in toc_page:
+            toc_page[NameObject("/Annots")].append(annotation)
+        else:
+            toc_page[NameObject("/Annots")] = ArrayObject([annotation])
+
+    return toc_reader, links
+
+def extract_file_num(filename):
+    """Extracts the numeric part of a filename for ordering purposes."""
+    match = re.match(r"(\d+)_.*\.pdf", filename, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    else:
+        raise ValueError(f"Filename {filename} does not match the expected format.")
+
+def count_pdf_files(folder):
+    """Counts the number of PDF files in the specified folder."""
+    return len([f for f in os.listdir(folder) if f.lower().endswith('.pdf')])
+
+def reorder_first_n_pages_with_links(input_pdf_path, page_order):
+    """Reorders the first N pages of a PDF and re-applies links to match the new page order."""
+    reader = PdfReader(input_pdf_path)
+    writer = PdfWriter()
+
+    # Extract pages and collect links
+    pages = [page for page in reader.pages]
+    links = []
+
+    for page_num, page in enumerate(pages):
+        if "/Annots" in page:
+            annotations = page[NameObject("/Annots")]
+            for annotation in annotations:
+                link = annotation.get_object()
+                if link.get("/Subtype") == "/Link":
+                    if "/A" in link and "/D" in link["/A"]:
+                        links.append((page_num, link))
+
+    # Reorder the first N pages
+    n = len(page_order)
+    reordered_pages = [pages[i] for i in page_order]
+    reordered_pages.extend(pages[n:])
+
+    # Add reordered pages to the writer
+    for page in reordered_pages:
+        writer.add_page(page)
+
+    # Reapply the links to the reordered pages
+    for page_num, link in links:
+        if page_num < n:
+            new_page_num = page_order.index(page_num)
+        else:
+            new_page_num = page_num
+        link_dest = link["/A"]["/D"]
+        if isinstance(link_dest[0], NumberObject):
+            link_dest[0] = NumberObject(new_page_num)
+        annotations = reordered_pages[new_page_num][NameObject("/Annots")]
+        annotations.append(link)
+
+    output_pdf_path = input_pdf_path.replace(".pdf", "_reordered_with_links.pdf")
+    with open(output_pdf_path, "wb") as f:
+        writer.write(f)
+
+    return output_pdf_path
+
+def main():
+    content_folder = "/content/drive/MyDrive/Colab Notebooks/CBEB-pdfs/PDF3"
+    header_image_path = f"{content_folder}/header_image.jpg"
+    output_dir = "processed_submissions"
+    os.makedirs(output_dir, exist_ok=True)
+
+    table_path = f"{content_folder}/TabelaTrabalhos4colsV2.xlsx"
+    df = pd.read_excel(table_path)
+
+    expected_columns = {'PDF Filename', 'Title', 'Authors', 'Oral/Poster'}
+    if not expected_columns.issubset(df.columns):
+        raise KeyError(f"Expected columns {expected_columns}, but found {df.columns}")
+
+    df = df.dropna()
+    df = df.astype({"PDF Filename": str, "Title": str, "Authors": str, "Oral/Poster": str})
+
+    toc_entries = []
+    combined_writer = PdfWriter()
+    page_number = 1
+
+    for _, row in df.iterrows():
+        filename = normalize_filename(row['PDF Filename'][:1000])  # Ensure the filename ends with .pdf
+        input_file = os.path.join(content_folder, filename)
+
+        if not os.path.exists(input_file):
+            print(f"File {input_file} not found. Skipping.")
+            continue
+
+        title = row['Title']
+        author = preprocess_authors(row['Authors'])
+        presentation_type = row['Oral/Poster']
+
+        print(f"Processing {input_file}")
+        writer = create_pdf_with_header_footer(input_file, header_image_path, FOOTER_TEXT, page_number, toc_page_num=0)
+        num_pages = len(writer.pages)
+
+        toc_entries.append((title, author, presentation_type, page_number))
+        page_number += num_pages
+
+        for page in writer.pages:
+            combined_writer.add_page(page)
+
+    toc_reader, links = generate_toc_pdf(toc_entries, header_image_path)
+
+    for page in toc_reader.pages:
+        combined_writer.insert_page(page, 0)
+
+    toc_page_count = len(toc_reader.pages)
+    for (x1, y1, x2, y2, page_num) in links:
+        annotation = DictionaryObject()
+        annotation.update({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Link"),
+            NameObject("/Rect"): ArrayObject([NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+            NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+            NameObject("/A"): DictionaryObject({
+                NameObject("/S"): NameObject("/GoTo"),
+                NameObject("/D"): ArrayObject([NumberObject(page_num + toc_page_count - 1),
+                                               NameObject("/XYZ"),
+                                               NumberObject(0),
+                                               NumberObject(842),
+                                               NumberObject(0)])
+            })
+        })
+        toc_page = combined_writer.pages[0]
+        if "/Annots" in toc_page:
+            toc_page[NameObject("/Annots")].append(annotation)
+        else:
+            toc_page[NameObject("/Annots")] = ArrayObject([annotation])
+
+    final_output_path = f"MergedPDFwithTOC_{random.randint(10000, 99999)}.pdf"
+    with open(final_output_path, "wb") as f:
+        combined_writer.write(f)
+
+    print("Final PDF created successfully.")
+
+    page_order = [1, 0, 2]  # Example page order
+    reordered_pdf_path = reorder_first_n_pages_with_links(final_output_path, page_order)
+
+    print(f"Reordered PDF saved as {reordered_pdf_path}")
+
+    os.chmod(reordered_pdf_path, 0o777)
+    files.download(reordered_pdf_path)
+
+if __name__ == "__main__":
+    main()
