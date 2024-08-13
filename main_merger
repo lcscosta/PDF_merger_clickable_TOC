@@ -223,33 +223,67 @@ def generate_toc_pdf(toc_entries, header_image_path):
 
     for entry in toc_entries:
         title, author, presentation_type, page_num = entry
-        link_text = f"({presentation_type}) {title}, by {author}"
+        link_text_titles = f"({presentation_type}) {title}"
+        link_text_authors = f"{author}"
 
         # Handle text wrapping
-        words = link_text.split()
+        words_titles = link_text_titles.split()
+        words_authors = link_text_authors.split()
         current_line = ""
-        lines = []
+        lines_titles = []
+        lines_authors = []
+        toc_page_num = 0
 
-        for word in words:
+        print(words_titles)
+        print(words_authors)
+        for word in words_titles:
             if can.stringWidth(current_line + " " + word, FONT_TYPE, TOC_FONT_SIZE) < (width - 2 * margin - 100):
                 current_line += " " + word
             else:
-                lines.append(current_line.strip())
+                lines_titles.append(current_line.strip())
                 current_line = word
 
-        lines.append(current_line.strip())
+        lines_titles.append(current_line.strip())
+
+        current_line = ""
+        for word in words_authors:
+            if can.stringWidth(current_line + " " + word, FONT_TYPE, TOC_FONT_SIZE) < (width - 2 * margin - 100):
+                current_line += " " + word
+            else:
+                lines_authors.append(current_line.strip())
+                current_line = word
+
+        lines_authors.append(current_line.strip())
 
         # Draw each line of text and add links to the first line
+        text_width = 0
+        lines = lines_titles[:]
+        lines.extend(lines_authors)
+        print(lines)
         for i, line in enumerate(lines):
-            can.drawString(margin, y_position, line)
-            if i == 0:
-                text_width = can.stringWidth(line, FONT_TYPE, TOC_FONT_SIZE)
-                links.append((margin, y_position, margin + text_width, y_position + line_height, page_num))
-            y_position -= line_height
+            if i < len(lines_titles):
+                if i == 0:
+                    can.setFillColorRGB(0, 0, 255)
+                    can.drawString(margin, y_position, line[0:len(presentation_type)+2])
+                    can.setFillColorRGB(0, 0, 0)
+                    can.setFont('Helvetica-Bold', TOC_FONT_SIZE)
+                    text_width = can.stringWidth(line[0:len(presentation_type)])
+                    can.drawString(margin + text_width, y_position, line[len(presentation_type)+2:])
+                    y0_position = y_position
+                    links.append((margin, y_position, margin + text_width, y_position + line_height, page_num, can.getPageNumber()))
+                    y_position -= line_height
+                else:
+                    can.drawString(margin, y_position, line)
+                    y_position -= line_height
+            else:
+                print(line)
+                can.setFont(FONT_TYPE, TOC_FONT_SIZE)
+                can.drawString(margin, y_position, line)
+                y_position -= line_height
 
         # Draw the page number on the same line as the last line of the title
         page_number_text = f"Page {page_num}"
-        can.drawRightString(width - margin, y_position + line_height, page_number_text)
+        can.drawRightString(width - margin, ((y0_position + y_position)/2)+line_height/2, page_number_text)
 
         y_position -= entry_spacing
 
@@ -262,9 +296,10 @@ def generate_toc_pdf(toc_entries, header_image_path):
     buffer.seek(0)
 
     toc_reader = PdfReader(buffer)
+    print(links)
 
     # Add links to the TOC with the corrected page destination
-    for i, (x1, y1, x2, y2, page_num) in enumerate(links):
+    for i, (x1, y1, x2, y2, page_num, toc_page_num) in enumerate(links):
         annotation = DictionaryObject()
         annotation.update({
             NameObject("/Type"): NameObject("/Annot"),
@@ -280,7 +315,7 @@ def generate_toc_pdf(toc_entries, header_image_path):
                                                NumberObject(0)])
             })
         })
-        toc_page = toc_reader.pages[0]
+        toc_page = toc_reader.pages[toc_page_num-1]
         if "/Annots" in toc_page:
             toc_page[NameObject("/Annots")].append(annotation)
         else:
@@ -345,55 +380,56 @@ def reorder_first_n_pages_with_links(input_pdf_path, page_order):
 
     return output_pdf_path
 
-def main():
-    content_folder = "/content/drive/MyDrive/Colab Notebooks/CBEB-pdfs/PDF3"
-    header_image_path = f"{content_folder}/header_image.jpg"
-    output_dir = "processed_submissions"
-    os.makedirs(output_dir, exist_ok=True)
+content_folder = "/content/drive/MyDrive/Colab Notebooks/CBEB"
+header_image_path = f"{content_folder}/header_image.jpg"
+output_dir = "processed_submissions"
+os.makedirs(output_dir, exist_ok=True)
 
-    table_path = f"{content_folder}/TabelaTrabalhos4colsV2.xlsx"
-    df = pd.read_excel(table_path)
+table_path = f"{content_folder}/TabelaTrabalhos4colsV2.xlsx"
+df = pd.read_excel(table_path)
 
-    expected_columns = {'PDF Filename', 'Title', 'Authors', 'Oral/Poster'}
-    if not expected_columns.issubset(df.columns):
-        raise KeyError(f"Expected columns {expected_columns}, but found {df.columns}")
+expected_columns = {'PDF Filename', 'Title', 'Authors', 'Oral/Poster'}
+if not expected_columns.issubset(df.columns):
+    raise KeyError(f"Expected columns {expected_columns}, but found {df.columns}")
 
-    df = df.dropna()
-    df = df.astype({"PDF Filename": str, "Title": str, "Authors": str, "Oral/Poster": str})
+df = df.dropna()
+df = df.astype({"PDF Filename": str, "Title": str, "Authors": str, "Oral/Poster": str})
 
-    toc_entries = []
-    combined_writer = PdfWriter()
-    page_number = 1
+toc_entries = []
+combined_writer = PdfWriter()
+page_number = 1
 
-    for _, row in df.iterrows():
-        filename = normalize_filename(row['PDF Filename'][:1000])  # Ensure the filename ends with .pdf
-        input_file = os.path.join(content_folder, filename)
+for _, row in df.iterrows():
+    filename = normalize_filename(row['PDF Filename'][:1000])  # Ensure the filename ends with .pdf
+    input_file = os.path.join(content_folder, filename)
 
-        if not os.path.exists(input_file):
-            print(f"File {input_file} not found. Skipping.")
-            continue
+    if not os.path.exists(input_file):
+        print(f"File {input_file} not found. Skipping.")
+        continue
 
-        title = row['Title']
-        author = preprocess_authors(row['Authors'])
-        presentation_type = row['Oral/Poster']
+    title = row['Title']
+    author = preprocess_authors(row['Authors'])
+    presentation_type = row['Oral/Poster']
 
-        print(f"Processing {input_file}")
-        writer = create_pdf_with_header_footer(input_file, header_image_path, FOOTER_TEXT, page_number, toc_page_num=0)
-        num_pages = len(writer.pages)
+    print(f"Processing {input_file}")
+    writer = create_pdf_with_header_footer(input_file, header_image_path, FOOTER_TEXT, page_number, toc_page_num=0)
+    num_pages = len(writer.pages)
 
-        toc_entries.append((title, author, presentation_type, page_number))
-        page_number += num_pages
+    toc_entries.append((title, author, presentation_type, page_number))
+    page_number += num_pages
 
-        for page in writer.pages:
-            combined_writer.add_page(page)
+    for page in writer.pages:
+        combined_writer.add_page(page)
 
-    toc_reader, links = generate_toc_pdf(toc_entries, header_image_path)
+toc_reader, links = generate_toc_pdf(toc_entries, header_image_path)
 
-    for page in toc_reader.pages:
-        combined_writer.insert_page(page, 0)
+for page in toc_reader.pages:
+    combined_writer.insert_page(page, 0)
 
-    toc_page_count = len(toc_reader.pages)
-    for (x1, y1, x2, y2, page_num) in links:
+'''
+toc_page_count = len(toc_reader.pages)
+for (x1, y1, x2, y2, page_num, toc_page_number) in links:
+    if toc_page_number == 1:
         annotation = DictionaryObject()
         annotation.update({
             NameObject("/Type"): NameObject("/Annot"),
@@ -403,10 +439,10 @@ def main():
             NameObject("/A"): DictionaryObject({
                 NameObject("/S"): NameObject("/GoTo"),
                 NameObject("/D"): ArrayObject([NumberObject(page_num + toc_page_count - 1),
-                                               NameObject("/XYZ"),
-                                               NumberObject(0),
-                                               NumberObject(842),
-                                               NumberObject(0)])
+                                                NameObject("/XYZ"),
+                                                NumberObject(0),
+                                                NumberObject(842),
+                                                NumberObject(0)])
             })
         })
         toc_page = combined_writer.pages[0]
@@ -414,20 +450,17 @@ def main():
             toc_page[NameObject("/Annots")].append(annotation)
         else:
             toc_page[NameObject("/Annots")] = ArrayObject([annotation])
+'''
+final_output_path = f"MergedPDFwithTOC_{random.randint(10000, 99999)}.pdf"
+with open(final_output_path, "wb") as f:
+    combined_writer.write(f)
 
-    final_output_path = f"MergedPDFwithTOC_{random.randint(10000, 99999)}.pdf"
-    with open(final_output_path, "wb") as f:
-        combined_writer.write(f)
+print("Final PDF created successfully.")
 
-    print("Final PDF created successfully.")
+page_order = [1, 0, 2]  # Example page order
+reordered_pdf_path = reorder_first_n_pages_with_links(final_output_path, page_order)
 
-    page_order = [1, 0, 2]  # Example page order
-    reordered_pdf_path = reorder_first_n_pages_with_links(final_output_path, page_order)
+print(f"Reordered PDF saved as {reordered_pdf_path}")
 
-    print(f"Reordered PDF saved as {reordered_pdf_path}")
-
-    os.chmod(reordered_pdf_path, 0o777)
-    files.download(reordered_pdf_path)
-
-if __name__ == "__main__":
-    main()
+os.chmod(reordered_pdf_path, 0o777)
+files.download(reordered_pdf_path)
