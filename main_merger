@@ -50,9 +50,9 @@ from google.colab import files
 
 # Global variables for formatting
 PAGE_SIZE = A4
-LEFT_MARGIN = inch
-RIGHT_MARGIN = 0.5 * inch
-HEADER_IMAGE_RESIZE_FACTOR = 0.5
+LEFT_MARGIN = 0.725 * inch
+RIGHT_MARGIN = 0.6 * inch
+HEADER_IMAGE_RESIZE_FACTOR = 0.2
 HEADER_IMAGE_HEIGHT = 1.0 * inch  # Control the height of the header image
 TOC_TITLE_FONT_SIZE = 14
 TOC_FONT_SIZE = 10
@@ -62,7 +62,7 @@ TOC_LOWER_MARGIN = 1 * inch  # Lower margin for the TOC
 
 # Global font settings
 FONT_TYPE = "Helvetica"
-FOOTER_TEXT = "CBEB Ribeirão Preto 2024. Click here to go to the Table of Contents"
+FOOTER_TEXT = "XXIX CBEB Ribeirão Preto 2024"
 
 def preprocess_authors(authors):
     """Cleans and formats the author names by capitalizing each word and removing unnecessary numbers and commas."""
@@ -96,11 +96,14 @@ def add_header_footer(page, header_image_path, footer_text, page_num, toc_page_n
     can = canvas.Canvas(packet, pagesize=PAGE_SIZE)
     width, height = PAGE_SIZE
 
+    margin = LEFT_MARGIN
+    y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40
+
     try:
         img_width, img_height = img.size
         new_width = img_width * HEADER_IMAGE_RESIZE_FACTOR
-        new_height = HEADER_IMAGE_HEIGHT
-        can.drawImage(header_image_path, LEFT_MARGIN, height - HEADER_VERT_DISPLACE - new_height,
+        new_height = img_height * HEADER_IMAGE_RESIZE_FACTOR
+        can.drawImage(header_image_path, width - RIGHT_MARGIN - new_width, y_position + 10,
                       width=new_width, height=new_height)
     except Exception as e:
         print(f"Error drawing header image: {e}")
@@ -129,16 +132,27 @@ def add_header_footer(page, header_image_path, footer_text, page_num, toc_page_n
 
 def add_link_to_header_footer(page, page_width, page_height, toc_page_num):
     """Adds link annotations to both the header image and the footer text that link back to the TOC page."""
+    try:
+        img = PILImage.open(header_image_path)
+        img.verify()
+    except Exception as e:
+        print(f"Error opening header image: {e}")
+        return
+
+    img_width, img_height = img.size
+    new_width = img_width * HEADER_IMAGE_RESIZE_FACTOR
+    new_height = img_height * HEADER_IMAGE_RESIZE_FACTOR
+
     # Add link to the header
     header_annotation = DictionaryObject()
     header_annotation.update({
         NameObject("/Type"): NameObject("/Annot"),
         NameObject("/Subtype"): NameObject("/Link"),
         NameObject("/Rect"): ArrayObject([
-            NumberObject(LEFT_MARGIN),
-            NumberObject(page_height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT),
-            NumberObject(LEFT_MARGIN + HEADER_IMAGE_RESIZE_FACTOR * page_width),
-            NumberObject(page_height - HEADER_VERT_DISPLACE)
+            NumberObject(page_width - RIGHT_MARGIN - new_width),
+            NumberObject(page_height - HEADER_VERT_DISPLACE - new_height - 40),
+            NumberObject(page_width - RIGHT_MARGIN),
+            NumberObject(page_height - HEADER_VERT_DISPLACE - 40)
         ]),
         NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
         NameObject("/A"): DictionaryObject({
@@ -190,7 +204,35 @@ def create_pdf_with_header_footer(input_pdf_path, header_image_path, footer_text
 
     return writer
 
-def generate_toc_pdf(toc_entries, header_image_path):
+def generate_bookcover_pdf():
+    buffer = BytesIO()
+    can = canvas.Canvas(buffer, pagesize=PAGE_SIZE)
+    width, height = PAGE_SIZE
+
+    center_x, center_y = width/2, height/2
+    margin = LEFT_MARGIN
+    y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40  # Adjusted for header image and title
+
+    # Add header image
+    try:
+        img = PILImage.open(header_image_path)
+        img.verify()
+        img_width, img_height = img.size
+        #new_width = width - 2 * margin  # Adjust to fit within margins
+        #new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+        can.drawImage(header_image_path, center_x - img_width*0.4, center_y - img_height*0.4, width=img_width*0.8, height=img_height*0.8)
+    except Exception as e:
+        print(f"Error drawing header image on TOC page: {e}")
+
+    can.save()
+    buffer.seek(0)
+
+    cover_reader = PdfReader(buffer)
+
+    return cover_reader
+
+
+def generate_sections_pdf(df, areas, sections):
     """Generates a Table of Contents (TOC) PDF with links to the corresponding pages in the main document."""
     buffer = BytesIO()
     can = canvas.Canvas(buffer, pagesize=PAGE_SIZE)
@@ -202,28 +244,197 @@ def generate_toc_pdf(toc_entries, header_image_path):
     line_height = 15
     entry_spacing = 10
 
+    print(y_position)
+
     # Add header image
     try:
         img = PILImage.open(header_image_path)
         img.verify()
         img_width, img_height = img.size
-        new_width = width - 2 * margin  # Adjust to fit within margins
-        new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
-        can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
-        y_position -= new_height + 20
+        #new_width = width - 2 * margin  # Adjust to fit within margins
+        #new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+        can.drawImage(header_image_path, width - RIGHT_MARGIN - img_width*0.2, y_position + 50, width=img_width*0.2, height=img_height*0.2)
+        y_position -= img_height*0.2 + 20
+        #can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
+        #y_position -= new_height + 20
     except Exception as e:
         print(f"Error drawing header image on TOC page: {e}")
+
+    # Add "XXIX Congresso Brasileiro de Engenharia Biomédica 2024" title
+    can.setFont(FONT_TYPE, TOC_TITLE_FONT_SIZE)
+    y_position += 40
+    can.drawString(margin, y_position, "XXIX Congresso Brasileiro de Engenharia Biomédica 2024")
+    y_position -= 40
+
+    # Add "Table of Contents" title
+    can.setFont(FONT_TYPE, TOC_TITLE_FONT_SIZE)
+    can.drawString(margin, y_position, "Table of Sections")
+    y_position -= 40
+
+    page_ctrl = can.getPageNumber()
+    can.setFont(FONT_TYPE, TOC_FONT_SIZE)
+    for idx, entry in enumerate(sorted(set(df['Área em inglês']))):
+        # Ensure the header
+        if can.getPageNumber() != page_ctrl:
+            # Add header image
+            try:
+                img = PILImage.open(header_image_path)
+                img.verify()
+                img_width, img_height = img.size
+                #new_width = width - 2 * margin  # Adjust to fit within margins
+                #new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+                can.drawImage(header_image_path, width - margin - img_width*0.1, y_position + 50, width=img_width*0.2, height=img_height*0.2)
+                y_position -= img_height*0.2 + 20
+                #can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
+                #y_position -= new_height + 20
+                page_ctrl = can.getPageNumber()
+            except Exception as e:
+                print(f"Error drawing header image on TOC page: {e}")
+
+        title = entry
+        link_text = f"{title}"
+
+        # Handle text wrapping
+        words_titles = link_text.split()
+        current_line = ""
+        lines_titles = []
+        toc_page_num = 0
+        for word in words_titles:
+            if can.stringWidth(current_line + " " + word, FONT_TYPE, TOC_FONT_SIZE) < (width - 2 * margin - 100):
+                current_line += " " + word
+            else:
+                lines_titles.append(current_line.strip())
+                current_line = word
+
+        lines_titles.append(current_line.strip())
+
+        # Draw each line of text and add links to the first line
+        lines = lines_titles[:]
+        for i, line in enumerate(lines):
+            if i < len(lines_titles):
+                if i == 0:
+                    can.setFillColorRGB(0, 0, 255)
+                    can.drawString(margin, y_position, line)
+                    text_width = can.stringWidth(line)
+                    y0_position = y_position
+                    links.append((margin, y_position, margin + text_width, y_position + line_height, sections[idx][2], can.getPageNumber()))
+                    y_position -= line_height
+                else:
+                    can.drawString(margin, y_position, line)
+                    y_position -= line_height
+            else:
+                can.setFont(FONT_TYPE, TOC_FONT_SIZE)
+                can.drawString(margin, y_position, line)
+                y_position -= line_height
+
+        # Draw the page number on the same line as the last line of the title
+        can.setFillColorRGB(0, 0, 0)
+        page_number_text = f"Page {str(sections[idx][2]).zfill(2)}"
+        can.drawRightString(width - margin, ((y0_position + y_position)/2)+line_height/2, page_number_text)
+        page_num = areas[title] + 1
+
+        y_position -= entry_spacing
+
+        if y_position < TOC_LOWER_MARGIN:
+            can.showPage()
+            y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40  # Reset for the new page
+            can.setFont(FONT_TYPE, TOC_FONT_SIZE)  # Ensure consistent font settings on the new page
+
+    can.save()
+    buffer.seek(0)
+
+    sections_reader = PdfReader(buffer)
+    print(sections[0])
+
+    # Add links to the TOC with the corrected page destination
+    for i, (x1, y1, x2, y2, page_num, toc_page_num) in enumerate(links):
+        annotation = DictionaryObject()
+        annotation.update({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Link"),
+            NameObject("/Rect"): ArrayObject([NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+            NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+            NameObject("/A"): DictionaryObject({
+                NameObject("/S"): NameObject("/GoTo"),
+                NameObject("/D"): ArrayObject([NumberObject(page_num + len(sections_reader.pages)),
+                                               NameObject("/XYZ"),
+                                               NumberObject(sections[i][0]),
+                                               NumberObject(sections[i][1] + line_height),
+                                               NumberObject(0)])
+            })
+        })
+
+        sections_page = sections_reader.pages[toc_page_num-1]
+        if "/Annots" in sections_page:
+            sections_page[NameObject("/Annots")].append(annotation)
+        else:
+            sections_page[NameObject("/Annots")] = ArrayObject([annotation])
+
+    return sections_reader
+
+def generate_toc_pdf(toc_entries, header_image_path):
+    """Generates a Table of Contents (TOC) PDF with links to the corresponding pages in the main document."""
+    buffer = BytesIO()
+    can = canvas.Canvas(buffer, pagesize=PAGE_SIZE)
+    links = []
+    links_sections = []
+
+    width, height = PAGE_SIZE
+    margin = LEFT_MARGIN
+    y_position = height - HEADER_VERT_DISPLACE - HEADER_IMAGE_HEIGHT - 40  # Adjusted for header image and title
+    line_height = 15
+    entry_spacing = 10
+
+    sections = []
+
+    # Add header image
+    try:
+        img = PILImage.open(header_image_path)
+        img.verify()
+        img_width, img_height = img.size
+        #new_width = width - 2 * margin  # Adjust to fit within margins
+        #new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+        #can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
+        can.drawImage(header_image_path, width - RIGHT_MARGIN - img_width*0.2, y_position + 50, width=img_width*0.2, height=img_height*0.2)
+        y_position -= img_height*0.2 + 10
+    except Exception as e:
+        print(f"Error drawing header image on TOC page: {e}")
+
+    # Add "XXIX Congresso Brasileiro de Engenharia Biomédica 2024" title
+    can.setFont(FONT_TYPE, TOC_TITLE_FONT_SIZE)
+    y_position += 40
+    can.drawString(margin, y_position, "XXIX Congresso Brasileiro de Engenharia Biomédica 2024")
+    y_position -= 40
 
     # Add "Table of Contents" title
     can.setFont(FONT_TYPE, TOC_TITLE_FONT_SIZE)
     can.drawString(margin, y_position, "Table of Contents")
     y_position -= 40
 
+    page_ctrl = can.getPageNumber()
     can.setFont(FONT_TYPE, TOC_FONT_SIZE)
-
     for entry in toc_entries:
-        title, author, presentation_type, page_num = entry
-        link_text_titles = f"({presentation_type}) {title}"
+        # Ensure the header
+        if can.getPageNumber() != page_ctrl:
+            # Add header image
+            try:
+                img = PILImage.open(header_image_path)
+                img.verify()
+                img_width, img_height = img.size
+                #new_width = width - 2 * margin  # Adjust to fit within margins
+                #new_height = (img_height * new_width) / img_width  # Maintain aspect ratio
+                can.drawImage(header_image_path, width - RIGHT_MARGIN - img_width*0.2, y_position + 50, width=img_width*0.2, height=img_height*0.2)
+                y_position -= img_height*0.2 + 20
+                y_position += 40
+                #can.drawImage(header_image_path, margin, y_position + 50, width=new_width, height=new_height)
+                #y_position -= new_height + 20
+                page_ctrl = can.getPageNumber()
+            except Exception as e:
+                print(f"Error drawing header image on TOC page: {e}")
+
+
+        title, author, presentation_id, page_num, section_title = entry
+        link_text_titles = f"({presentation_id.zfill(3)}) {title}"
         link_text_authors = f"{author}"
 
         # Handle text wrapping
@@ -234,8 +445,6 @@ def generate_toc_pdf(toc_entries, header_image_path):
         lines_authors = []
         toc_page_num = 0
 
-        print(words_titles)
-        print(words_authors)
         for word in words_titles:
             if can.stringWidth(current_line + " " + word, FONT_TYPE, TOC_FONT_SIZE) < (width - 2 * margin - 100):
                 current_line += " " + word
@@ -259,16 +468,24 @@ def generate_toc_pdf(toc_entries, header_image_path):
         text_width = 0
         lines = lines_titles[:]
         lines.extend(lines_authors)
-        print(lines)
         for i, line in enumerate(lines):
             if i < len(lines_titles):
                 if i == 0:
+                    if section_title != 'nan':
+                        can.setFont('Helvetica-Bold', TOC_FONT_SIZE + 2)
+                        can.setFillColorRGB(0, 0, 255)
+                        can.drawString(margin, y_position, section_title)
+                        text_width = can.stringWidth(section_title)
+                        sections.append((margin, y_position, can.getPageNumber()))
+                        links_sections.append((margin, y_position, margin + text_width, y_position + line_height, 2, can.getPageNumber()))
+                        y_position -= 2*line_height
+                    can.setFont('Helvetica', TOC_FONT_SIZE)
                     can.setFillColorRGB(0, 0, 255)
-                    can.drawString(margin, y_position, line[0:len(presentation_type)+2])
+                    can.drawString(margin, y_position, line[0:len(presentation_id.zfill(3))+2])
                     can.setFillColorRGB(0, 0, 0)
                     can.setFont('Helvetica-Bold', TOC_FONT_SIZE)
-                    text_width = can.stringWidth(line[0:len(presentation_type)])
-                    can.drawString(margin + text_width, y_position, line[len(presentation_type)+2:])
+                    text_width = can.stringWidth(line[0:len(presentation_id.zfill(3))+2])
+                    can.drawString(margin + text_width, y_position, line[len(presentation_id.zfill(3))+2:])
                     y0_position = y_position
                     links.append((margin, y_position, margin + text_width, y_position + line_height, page_num, can.getPageNumber()))
                     y_position -= line_height
@@ -276,13 +493,12 @@ def generate_toc_pdf(toc_entries, header_image_path):
                     can.drawString(margin, y_position, line)
                     y_position -= line_height
             else:
-                print(line)
                 can.setFont(FONT_TYPE, TOC_FONT_SIZE)
                 can.drawString(margin, y_position, line)
                 y_position -= line_height
 
         # Draw the page number on the same line as the last line of the title
-        page_number_text = f"Page {page_num}"
+        page_number_text = f"Page {str(page_num).zfill(3)}"
         can.drawRightString(width - margin, ((y0_position + y_position)/2)+line_height/2, page_number_text)
 
         y_position -= entry_spacing
@@ -296,7 +512,6 @@ def generate_toc_pdf(toc_entries, header_image_path):
     buffer.seek(0)
 
     toc_reader = PdfReader(buffer)
-    print(links)
 
     # Add links to the TOC with the corrected page destination
     for i, (x1, y1, x2, y2, page_num, toc_page_num) in enumerate(links):
@@ -321,7 +536,30 @@ def generate_toc_pdf(toc_entries, header_image_path):
         else:
             toc_page[NameObject("/Annots")] = ArrayObject([annotation])
 
-    return toc_reader, links
+    # Add links to the TOC with the corrected page destination
+    for i, (x1, y1, x2, y2, page_num, toc_page_num) in enumerate(links_sections):
+        annotation = DictionaryObject()
+        annotation.update({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Link"),
+            NameObject("/Rect"): ArrayObject([NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+            NameObject("/Border"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0)]),
+            NameObject("/A"): DictionaryObject({
+                NameObject("/S"): NameObject("/GoTo"),
+                NameObject("/D"): ArrayObject([NumberObject(page_num - 1),
+                                               NameObject("/XYZ"),
+                                               NumberObject(0),
+                                               NumberObject(842),
+                                               NumberObject(0)])
+            })
+        })
+        toc_page = toc_reader.pages[toc_page_num-1]
+        if "/Annots" in toc_page:
+            toc_page[NameObject("/Annots")].append(annotation)
+        else:
+            toc_page[NameObject("/Annots")] = ArrayObject([annotation])
+
+    return toc_reader, links, sections
 
 def extract_file_num(filename):
     """Extracts the numeric part of a filename for ordering purposes."""
@@ -380,48 +618,107 @@ def reorder_first_n_pages_with_links(input_pdf_path, page_order):
 
     return output_pdf_path
 
-content_folder = "/content/drive/MyDrive/Colab Notebooks/CBEB"
-header_image_path = f"{content_folder}/header_image.jpg"
+xlsx_folder = "/content/drive/MyDrive/Colab Notebooks/CBEB"
+content_folder = "/content/drive/MyDrive/Descompactado"
+header_image_path = f"{xlsx_folder}/cbeblogo.jpeg"
 output_dir = "processed_submissions"
 os.makedirs(output_dir, exist_ok=True)
 
-table_path = f"{content_folder}/TabelaTrabalhos4colsV2.xlsx"
+table_path = f"{xlsx_folder}/Cópia de Lista de trabalhos orais e e-poster - FINAL (2).xlsx"
 df = pd.read_excel(table_path)
 
-expected_columns = {'PDF Filename', 'Title', 'Authors', 'Oral/Poster'}
+expected_columns = {'Nome arquivo', 'ID Trabalho', 'Título', 'Autores', 'Área em inglês', 'Apresentação'}
 if not expected_columns.issubset(df.columns):
     raise KeyError(f"Expected columns {expected_columns}, but found {df.columns}")
 
-df = df.dropna()
-df = df.astype({"PDF Filename": str, "Title": str, "Authors": str, "Oral/Poster": str})
+#df = df.dropna()
+df = df.astype({
+    'Nome arquivo': str,
+    'ID Trabalho': int,
+    'Título': str,
+    'Autores': str,
+    'Área em inglês': str,
+    'Apresentação': str
+})
 
 toc_entries = []
 combined_writer = PdfWriter()
 page_number = 1
+areas = dict()
+for area in sorted(set(df['Área em inglês'])):
+    areas[area] = 0
 
-for _, row in df.iterrows():
-    filename = normalize_filename(row['PDF Filename'][:1000])  # Ensure the filename ends with .pdf
+#print(len(glob()))
+
+for _, row in df.sort_values(by=['Nome arquivo']).iterrows():
+    filename = normalize_filename(row['Nome arquivo'][:1000])  # Ensure the filename ends with .pdf
     input_file = os.path.join(content_folder, filename)
+    input_file_docx = os.path.join(content_folder, normalize_filename(row['Nome arquivo'][:1000])[:-4]+'.docx')
 
-    if not os.path.exists(input_file):
+    print(row['Nome arquivo'])
+    if not os.path.exists(input_file) and not os.path.exists(input_file_docx):
         print(f"File {input_file} not found. Skipping.")
-        continue
+        pass
 
-    title = row['Title']
-    author = preprocess_authors(row['Authors'])
-    presentation_type = row['Oral/Poster']
 
-    print(f"Processing {input_file}")
-    writer = create_pdf_with_header_footer(input_file, header_image_path, FOOTER_TEXT, page_number, toc_page_num=0)
-    num_pages = len(writer.pages)
+for _, row in df.sort_values(by=['Área em inglês']).iterrows():
+    filename = normalize_filename(row['Nome arquivo'][:1000])  # Ensure the filename ends with .pdf
+    input_file = os.path.join(content_folder, filename)
+    input_file_docx = os.path.join(content_folder, normalize_filename(row['Nome arquivo'][:1000])[:-4]+'.docx')
 
-    toc_entries.append((title, author, presentation_type, page_number))
+    if not os.path.exists(input_file) and os.path.exists(input_file_docx):
+        #print(f"File {input_file} not found. Skipping.")
+        #continue
+        pass
+
+    if not os.path.exists(input_file) and not os.path.exists(input_file_docx):
+        #print(f"File {input_file} not found. Skipping.")
+        #continue
+        pass
+
+    title = row['Título']
+    author = preprocess_authors(row['Autores'])
+    presentation_id = row['ID Trabalho']
+
+    #print(f"Processing {input_file}")
+    # Este if é uma gambiarra para testes
+    if os.path.exists(input_file):
+        writer = create_pdf_with_header_footer(input_file, header_image_path, FOOTER_TEXT, page_number, toc_page_num=0)
+        num_pages = len(writer.pages)
+    else:
+        num_pages = 6
+
+    toc_entries.append([title, author, str(presentation_id), page_number])
+    areas[row['Área em inglês']] += num_pages
     page_number += num_pages
 
-    for page in writer.pages:
-        combined_writer.add_page(page)
+    # Este if é uma gambiarra para testes
+    if os.path.exists(input_file):
+        for page in writer.pages:
+            combined_writer.add_page(page)
 
-toc_reader, links = generate_toc_pdf(toc_entries, header_image_path)
+for idx, area in enumerate(areas.keys()):
+    if idx != 0:
+      areas[area] += areas[list(areas.keys())[idx-1]]
+
+area_idx = 0
+for idx in range(len(toc_entries)):
+    page_num = toc_entries[idx][3] - 1
+    if page_num == 0 or page_num in areas.values():
+      toc_entries[idx].append(list(areas.keys())[area_idx])
+      area_idx += 1
+    else:
+      toc_entries[idx].append('nan')
+
+cover_reader = generate_bookcover_pdf()
+toc_reader, links, sections = generate_toc_pdf(toc_entries, header_image_path)
+sections_reader = generate_sections_pdf(df, areas, sections)
+
+for page in cover_reader.pages:
+    combined_writer.insert_page(page, 0)
+
+for page in sections_reader.pages:
+    combined_writer.insert_page(page, 0)
 
 for page in toc_reader.pages:
     combined_writer.insert_page(page, 0)
@@ -456,8 +753,8 @@ with open(final_output_path, "wb") as f:
     combined_writer.write(f)
 
 print("Final PDF created successfully.")
-
-page_order = [1, 0, 2]  # Example page order
+page_order = list(range(len(toc_reader.pages)+len(sections_reader.pages)+1))  # Example page order
+page_order.reverse()
 reordered_pdf_path = reorder_first_n_pages_with_links(final_output_path, page_order)
 
 print(f"Reordered PDF saved as {reordered_pdf_path}")
